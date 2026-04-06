@@ -13,25 +13,58 @@ tags:
 
 # CleanOps OpenEnv
 
-CleanOps is a real-world OpenEnv benchmark where an agent cleans operational
-tabular data from CRM, order, subscription, and payment pipelines. The agent
-must inspect tables, choose remediation operations, avoid destructive shortcuts,
-and submit a cleaned dataset scored by deterministic graders.
+CleanOps is a real-world OpenEnv benchmark for evaluating AI agents on
+operational data-cleaning workflows. Instead of solving a game or toy puzzle,
+the agent has to inspect messy business tables, choose safe remediation actions,
+avoid destructive shortcuts, and submit a cleaned dataset scored by
+deterministic graders.
 
-This is intentionally not a game or toy task. It models the kind of operational
-data cleanup that sales ops, RevOps, support ops, and data platform teams perform
-before loading systems-of-record or analytics warehouses.
+The benchmark models the kind of cleanup work that sales ops, RevOps, support
+ops, and data platform teams perform before loading data into CRMs, billing
+systems, and analytics warehouses.
+
+## Live Links
+
+- Hugging Face Space: [harsharajkumar273/cleanops-openenv](https://huggingface.co/spaces/harsharajkumar273/cleanops-openenv)
+- Live App: [harsharajkumar273-cleanops-openenv.hf.space](https://harsharajkumar273-cleanops-openenv.hf.space/)
+- GitHub Repository: [harsharajkumar/cleanops-openenv](https://github.com/harsharajkumar/cleanops-openenv)
+
+## Portfolio Highlights
+
+- Real-world benchmark: evaluates agents on CRM, orders, subscriptions, and
+  payments data-cleaning tasks rather than synthetic game mechanics.
+- Full OpenEnv implementation: typed `Action`, `Observation`, and `State`
+  models plus `reset()`, `step()`, and `state()` APIs.
+- Deterministic evaluation: three graded tasks with reproducible `0.0-1.0`
+  scoring and interpretable grader components.
+- Dense reward shaping: partial progress signals reward useful cleanup while
+  penalizing invalid, repeated, or premature actions.
+- Production-style delivery: shipped with a Dockerfile, a live Hugging Face
+  Space, baseline inference scripts, and tests.
 
 ## Why This Environment Is Useful
 
-- Realistic domain: tabular data standardization, missing-value repair,
-  deduplication, and referential integrity fixes.
-- Deterministic programmatic graders: every task returns a reproducible
-  `0.0-1.0` score with interpretable components.
-- Dense reward shaping: reward is driven by score deltas, issue-count reduction,
-  inspection bonuses, step costs, no-op penalties, and submission bonuses.
-- Curriculum-ready tasks: one easy, one medium, and one hard task with increasing
+- Realistic domain: tabular standardization, missing-value repair,
+  deduplication, and referential-integrity fixes.
+- Reproducible evaluation: every task returns a deterministic `0.0-1.0` score
+  with interpretable components.
+- Curriculum structure: one easy, one medium, and one hard task with increasing
   schema complexity and cross-table dependencies.
+- Agent-friendly observations: the environment surfaces validation issues,
+  table previews, operation metadata, and reward breakdowns that make policy
+  learning and debugging tractable.
+
+## What The Agent Actually Does
+
+On each episode, the agent:
+
+1. inspects noisy business tables and validation issues
+2. chooses from a typed catalog of cleaning operations
+3. applies targeted fixes while avoiding destructive shortcuts
+4. submits the cleaned dataset for deterministic scoring
+
+This creates a realistic benchmark loop for evaluating whether an agent can
+reason about messy structured data over multiple steps.
 
 ## Task Suite
 
@@ -65,7 +98,6 @@ state = env.state()
 ### OpenEnv Server API
 
 ```bash
-cd /Users/harsharajkumar/Downloads/research_paper_simplifier-main/meta
 PYTHONPATH="$PWD" python -m server.app --host 0.0.0.0 --port 8000
 ```
 
@@ -135,6 +167,19 @@ reward =
 This gives partial progress credit throughout the trajectory and penalizes
 repeat/no-op actions, invalid operations, and low-quality premature submission.
 
+## System Design
+
+- `cleanops_env/tasks.py`: task definitions, gold tables, and operation catalog
+- `cleanops_env/graders.py`: deterministic scoring logic and validation checks
+- `cleanops_env/environment.py`: OpenEnv episode state, reward shaping, and
+  typed step/reset/state implementation
+- `server/app.py`: FastAPI/OpenEnv server plus the Hugging Face demo UI
+- `inference.py`: submission-ready baseline runner with structured logs
+
+The design intentionally separates task data, grading logic, and runtime state
+so the benchmark is easier to extend and easier to reason about during
+evaluation.
+
 ## Grading
 
 Each task uses a deterministic grader that outputs a final score in `[0.0, 1.0]`
@@ -153,7 +198,8 @@ Final score:
 ## Setup
 
 ```bash
-cd /Users/harsharajkumar/Downloads/research_paper_simplifier-main/meta
+git clone https://github.com/harsharajkumar/cleanops-openenv.git
+cd cleanops-openenv
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -162,7 +208,6 @@ pip install -e ".[dev]"
 ## Validate
 
 ```bash
-cd /Users/harsharajkumar/Downloads/research_paper_simplifier-main/meta
 openenv validate --verbose
 pytest -q
 ```
@@ -191,7 +236,6 @@ Environment variables:
 Example:
 
 ```bash
-cd /Users/harsharajkumar/Downloads/research_paper_simplifier-main/meta
 export API_BASE_URL="https://router.huggingface.co/v1"
 export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
 export HF_TOKEN="..."
@@ -203,7 +247,6 @@ PYTHONPATH="$PWD" python inference.py
 ### Deterministic Oracle Smoke Baseline
 
 ```bash
-cd /Users/harsharajkumar/Downloads/research_paper_simplifier-main/meta
 PYTHONPATH="$PWD" python scripts/run_oracle_smoke.py
 ```
 
@@ -219,7 +262,6 @@ Expected scores measured locally:
 ### OpenAI Baseline Agent
 
 ```bash
-cd /Users/harsharajkumar/Downloads/research_paper_simplifier-main/meta
 export OPENAI_API_KEY="..."
 export OPENAI_MODEL="gpt-4.1-mini"
 export OPENAI_SEED=7
@@ -229,10 +271,19 @@ PYTHONPATH="$PWD" python scripts/run_openai_baseline.py --output openai_baseline
 The OpenAI runner uses temperature `0`, fixed seed values, and the typed
 `DataCleaningAction` schema to produce reproducible rollouts.
 
+## Why This Is A Strong Portfolio Project
+
+- It shows environment design, not just model prompting.
+- It combines backend engineering, evaluation design, reward shaping, and
+  deployment.
+- It demonstrates agent tooling with typed APIs, deterministic graders, and a
+  live hosted demo.
+- It reflects an applied ML systems problem that maps to real business
+  workflows.
+
 ## Docker
 
 ```bash
-cd /Users/harsharajkumar/Downloads/research_paper_simplifier-main/meta
 docker build -t cleanops-env:latest .
 docker run --rm -p 8000:8000 cleanops-env:latest
 curl http://127.0.0.1:8000/health
@@ -247,14 +298,13 @@ curl http://127.0.0.1:8000/health
 5. If needed, push with the OpenEnv CLI:
 
 ```bash
-cd /Users/harsharajkumar/Downloads/research_paper_simplifier-main/meta
 openenv push
 ```
 
 ## Project Structure
 
 ```text
-meta/
+cleanops-openenv/
 ├── cleanops_env/
 │   ├── client.py
 │   ├── environment.py
