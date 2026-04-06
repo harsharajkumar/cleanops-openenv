@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-cleanops"
+version = "0.1.0"
+description = "A real-world OpenEnv data-cleaning environment for operational tabular datasets."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "openai>=2.30.0",
+    "openenv-core[core]>=0.2.0",
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0",
+    "requests>=2.32.0",
+    "uvicorn>=0.34.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0"]
+
+[project.scripts]
+server = "server.app:main"
+cleanops-openai-baseline = "scripts.run_openai_baseline:main"
+
+[tool.setuptools]
+packages = ["cleanops_env", "server", "scripts"]
+
