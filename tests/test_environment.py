@@ -12,7 +12,7 @@ def test_reset_step_state_api() -> None:
     assert observation.task_id == "customer_contacts_easy"
     assert observation.requested_seed == 7
     assert observation.done is False
-    assert observation.quality_score < 1.0
+    assert 0.0 < observation.quality_score < 1.0
 
     observation, reward, done, info = env.step(
         DataCleaningAction(action_type="inspect_table", table_name="customers", reasoning="Inspect the main table first.")
@@ -25,7 +25,7 @@ def test_reset_step_state_api() -> None:
     assert observation.focus_table.name == "customers"
 
 
-def test_oracle_solution_scores_one_for_all_tasks() -> None:
+def test_oracle_solution_scores_strictly_inside_open_interval_for_all_tasks() -> None:
     env = LocalCleanOpsEnv()
     for task_id, task_spec in TASK_CATALOG.items():
         observation = env.reset(task_id=task_id, seed=7)
@@ -34,8 +34,9 @@ def test_oracle_solution_scores_one_for_all_tasks() -> None:
             assert done is False
         observation, _, done, _ = env.step(DataCleaningAction(action_type="submit", reasoning="Submit cleaned tables."))
         assert done is True
-        assert observation.quality_score == 1.0
-        assert observation.grader.final_score == 1.0
+        assert 0.0 < observation.quality_score < 1.0
+        assert observation.quality_score == 0.99
+        assert observation.grader.final_score == 0.99
 
 
 def test_decoy_operation_lowers_easy_task_quality() -> None:
@@ -44,7 +45,7 @@ def test_decoy_operation_lowers_easy_task_quality() -> None:
     damaged_tables = task_spec.operations["easy_drop_inactive_customers"].transform(clone_tables(clean_tables))
     clean_grade = grade_tables(task_spec, clean_tables)
     damaged_grade = grade_tables(task_spec, damaged_tables)
-    assert clean_grade.score == 1.0
+    assert clean_grade.score == 0.99
     assert damaged_grade.score < clean_grade.score
 
 

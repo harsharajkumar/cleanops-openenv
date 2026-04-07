@@ -35,7 +35,7 @@ systems, and analytics warehouses.
   payments data-cleaning tasks rather than synthetic game mechanics.
 - Full OpenEnv implementation: typed `Action`, `Observation`, and `State`
   models plus `reset()`, `step()`, and `state()` APIs.
-- Deterministic evaluation: three graded tasks with reproducible `0.0-1.0`
+- Deterministic evaluation: three graded tasks with reproducible `(0.0, 1.0)`
   scoring and interpretable grader components.
 - Dense reward shaping: partial progress signals reward useful cleanup while
   penalizing invalid, repeated, or premature actions.
@@ -46,7 +46,7 @@ systems, and analytics warehouses.
 
 - Realistic domain: tabular standardization, missing-value repair,
   deduplication, and referential-integrity fixes.
-- Reproducible evaluation: every task returns a deterministic `0.0-1.0` score
+- Reproducible evaluation: every task returns a deterministic `(0.0, 1.0)` score
   with interpretable components.
 - Curriculum structure: one easy, one medium, and one hard task with increasing
   schema complexity and cross-table dependencies.
@@ -182,7 +182,7 @@ evaluation.
 
 ## Grading
 
-Each task uses a deterministic grader that outputs a final score in `[0.0, 1.0]`
+Each task uses a deterministic grader that outputs a final score in `(0.0, 1.0)`
 from three components:
 
 - `cell_match_score`: exact canonicalized cell match against gold cleaned tables.
@@ -254,10 +254,10 @@ Expected scores measured locally:
 
 | Task ID | Score | Steps | Total Reward |
 |---|---:|---:|---:|
-| `customer_contacts_easy` | 1.0000 | 7 | 1.1430 |
-| `orders_reconciliation_medium` | 1.0000 | 6 | 1.0222 |
-| `crm_migration_hard` | 1.0000 | 8 | 1.0827 |
-| Mean | 1.0000 | - | - |
+| `customer_contacts_easy` | 0.9900 | 7 | 1.1234 |
+| `orders_reconciliation_medium` | 0.9900 | 6 | 1.0049 |
+| `crm_migration_hard` | 0.9900 | 8 | 1.0628 |
+| Mean | 0.9900 | - | - |
 
 ### OpenAI Baseline Agent
 

@@ -23,6 +23,9 @@ from cleanops_env.tasks import (
     sorted_rows,
 )
 
+MIN_OPEN_SCORE = 0.01
+MAX_OPEN_SCORE = 0.99
+
 
 @dataclass(frozen=True)
 class GraderResult:
@@ -34,6 +37,12 @@ class GraderResult:
     @property
     def score(self) -> float:
         return self.breakdown.final_score
+
+
+def _open_interval_score(raw_score: float) -> float:
+    """Normalize task-facing scores into the validator-safe open interval (0, 1)."""
+
+    return round(min(MAX_OPEN_SCORE, max(MIN_OPEN_SCORE, raw_score)), 4)
 
 
 def _canonical_cell(column_name: str, value: object) -> str:
@@ -147,18 +156,18 @@ def _validation_score(task_spec: TaskSpec, current_issues: list[ValidationIssue]
 
 
 def grade_tables(task_spec: TaskSpec, tables: Tables) -> GraderResult:
-    """Compute a deterministic 0.0-1.0 score against the task's gold tables."""
+    """Compute a deterministic validator-safe score against the task's gold tables."""
 
     validation_issues = validate_tables(task_spec, tables)
-    cell_match = _cell_match_score(task_spec, tables)
-    key_recall = _key_recall_score(task_spec, tables)
-    validation = _validation_score(task_spec, validation_issues)
-    final_score = round(0.55 * cell_match + 0.20 * key_recall + 0.25 * validation, 4)
+    cell_match = _open_interval_score(_cell_match_score(task_spec, tables))
+    key_recall = _open_interval_score(_key_recall_score(task_spec, tables))
+    validation = _open_interval_score(_validation_score(task_spec, validation_issues))
+    final_score = _open_interval_score(0.55 * cell_match + 0.20 * key_recall + 0.25 * validation)
     return GraderResult(
         breakdown=GradeBreakdown(
-            cell_match_score=round(cell_match, 4),
-            key_recall_score=round(key_recall, 4),
-            validation_score=round(validation, 4),
+            cell_match_score=cell_match,
+            key_recall_score=key_recall,
+            validation_score=validation,
             final_score=final_score,
         ),
         validation_issues=validation_issues,
