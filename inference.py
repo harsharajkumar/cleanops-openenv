@@ -33,12 +33,18 @@ SYSTEM_PROMPT = textwrap.dedent(
     You are a data-cleaning operations agent working in the CleanOps OpenEnv benchmark.
     Choose exactly one JSON action per turn using this schema:
     {
-      "action_type": "inspect_table" | "inspect_operation" | "apply_operation" | "submit",
+      "action_type": "inspect_table" | "inspect_operation" | "apply_operation" | "request_review" | "run_sync_dry_run" | "submit",
       "table_name": string | null,
       "operation_id": string | null,
+      "entity_type": string | null,
+      "entity_id": string | null,
+      "target_system": "crm" | "billing" | null,
+      "reason_code": string | null,
       "reasoning": string
     }
     Prefer safe/review operations that directly resolve current validation issues.
+    Use request_review when the environment flags an ambiguous merge or repair decision.
+    Use run_sync_dry_run before submit on medium and hard tasks when downstream risk still looks material.
     Avoid destructive operations unless the task objective explicitly asks for deletions.
     Submit once quality_score is high and remaining validation issues are gone.
     Return only a single JSON object.
@@ -68,6 +74,15 @@ def build_observation_prompt(observation: DataCleaningObservation) -> str:
         "objective": observation.objective,
         "quality_score": observation.quality_score,
         "remaining_steps": observation.remaining_steps,
+        "review_budget_remaining": observation.review_budget_remaining,
+        "supported_sync_targets": observation.supported_sync_targets,
+        "downstream_health": observation.downstream_health.model_dump(),
+        "risk_cards": [risk_card.model_dump() for risk_card in observation.risk_cards],
+        "available_review_targets": [target.model_dump() for target in observation.available_review_targets],
+        "pending_reviews": [review.model_dump() for review in observation.pending_reviews],
+        "resolved_reviews": [review.model_dump() for review in observation.resolved_reviews],
+        "last_dry_run": observation.last_dry_run.model_dump() if observation.last_dry_run else None,
+        "action_costs": [entry.model_dump() for entry in observation.action_costs],
         "table_summaries": [summary.model_dump() for summary in observation.table_summaries],
         "focus_table": observation.focus_table.model_dump() if observation.focus_table else None,
         "focus_operation": observation.focus_operation.model_dump() if observation.focus_operation else None,
@@ -121,6 +136,10 @@ def action_to_string(action: DataCleaningAction) -> str:
         return f"inspect_operation({action.operation_id})"
     if action.action_type == "apply_operation":
         return f"apply_operation({action.operation_id})"
+    if action.action_type == "request_review":
+        return f"request_review({action.entity_type},{action.entity_id},{action.reason_code})"
+    if action.action_type == "run_sync_dry_run":
+        return f"run_sync_dry_run({action.target_system})"
     return "submit()"
 
 

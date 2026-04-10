@@ -99,6 +99,20 @@ class OperationSpec:
 
 
 @dataclass(frozen=True)
+class ReviewCaseSpec:
+    review_id: str
+    entity_type: str
+    entity_id: str
+    reason_code: str
+    title: str
+    detail: str
+    resolution: str
+    response_summary: str
+    evidence_summary: str
+    recommended_operation_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class TaskSpec:
     task_id: str
     title: str
@@ -106,6 +120,8 @@ class TaskSpec:
     objective: str
     dataset_context: str
     max_steps: int
+    review_budget: int
+    sync_targets: tuple[str, ...]
     primary_keys: dict[str, str]
     duplicate_identity_columns: dict[str, tuple[str, ...]]
     dirty_tables: Tables
@@ -114,6 +130,7 @@ class TaskSpec:
     operations: dict[str, OperationSpec]
     solution_operation_ids: tuple[str, ...]
     issue_cards: tuple[IssueCard, ...]
+    review_cases: dict[str, ReviewCaseSpec]
 
 
 def clone_tables(tables: Tables) -> Tables:
@@ -353,6 +370,8 @@ def _task_from_solution(
     objective: str,
     dataset_context: str,
     max_steps: int,
+    review_budget: int,
+    sync_targets: tuple[str, ...],
     primary_keys: dict[str, str],
     duplicate_identity_columns: dict[str, tuple[str, ...]],
     dirty_tables: Tables,
@@ -360,6 +379,7 @@ def _task_from_solution(
     operations: dict[str, OperationSpec],
     solution_operation_ids: tuple[str, ...],
     issue_cards: tuple[IssueCard, ...],
+    review_cases: dict[str, ReviewCaseSpec],
 ) -> TaskSpec:
     gold_tables = clone_tables(dirty_tables)
     for operation_id in solution_operation_ids:
@@ -371,6 +391,8 @@ def _task_from_solution(
         objective=objective,
         dataset_context=dataset_context,
         max_steps=max_steps,
+        review_budget=review_budget,
+        sync_targets=sync_targets,
         primary_keys=primary_keys,
         duplicate_identity_columns=duplicate_identity_columns,
         dirty_tables=dirty_tables,
@@ -379,6 +401,7 @@ def _task_from_solution(
         operations=operations,
         solution_operation_ids=solution_operation_ids,
         issue_cards=issue_cards,
+        review_cases=review_cases,
     )
 
 
@@ -418,6 +441,20 @@ def _build_easy_task() -> TaskSpec:
         IssueCard(title="A missing state value blocks validation", detail="One customer record has city information but no state code.", issue_codes=["required:customers.state"], recommended_operation_ids=["easy_fill_state_from_city"]),
         IssueCard(title="Duplicate customer identities exist", detail="Two rows refer to the same customer once emails are normalized.", issue_codes=["unique:customers.email"], recommended_operation_ids=["easy_merge_customers_by_email"]),
     )
+    review_cases = {
+        "easy_customer_duplicate_review": ReviewCaseSpec(
+            review_id="easy_customer_duplicate_review",
+            entity_type="customer",
+            entity_id="C005",
+            reason_code="possible_duplicate",
+            title="Confirm duplicate customer merge",
+            detail="Alice Johnson appears twice with status conflicts after email normalization.",
+            resolution="merge_confirmed_keep_c001",
+            response_summary="Merge C005 into C001. Keep the active account record and preserve inactive customers elsewhere in the file.",
+            evidence_summary="Normalized emails match and both rows describe the same Nashville customer; C001 is the canonical CRM ID.",
+            recommended_operation_ids=("easy_merge_customers_by_email",),
+        )
+    }
     return _task_from_solution(
         task_id="customer_contacts_easy",
         title="Customer Contacts Standardization",
@@ -425,6 +462,8 @@ def _build_easy_task() -> TaskSpec:
         objective="Prepare a customer-contact export for CRM import by standardizing contact fields, filling one missing state, and merging duplicate customer rows without deleting valid inactive accounts.",
         dataset_context="This table simulates a weekly B2B CRM export that sales ops cleans before loading into a customer system.",
         max_steps=10,
+        review_budget=1,
+        sync_targets=("crm",),
         primary_keys={"customers": "customer_id"},
         duplicate_identity_columns={"customers": ("email",)},
         dirty_tables=dirty_tables,
@@ -432,6 +471,7 @@ def _build_easy_task() -> TaskSpec:
         operations=operations,
         solution_operation_ids=("easy_normalize_names", "easy_normalize_emails", "easy_normalize_phones", "easy_normalize_states", "easy_fill_state_from_city", "easy_merge_customers_by_email"),
         issue_cards=issue_cards,
+        review_cases=review_cases,
     )
 
 
@@ -477,6 +517,20 @@ def _build_medium_task() -> TaskSpec:
         IssueCard(title="Shipping state labels are not canonical", detail="Downstream warehouse tools require two-letter state abbreviations.", issue_codes=["enum:orders.shipping_state"], recommended_operation_ids=["med_normalize_shipping_states"]),
         IssueCard(title="A duplicated order row exists", detail="One record is a second export copy of another order.", issue_codes=["unique:orders.order_id"], recommended_operation_ids=["med_dedupe_orders"]),
     )
+    review_cases = {
+        "med_returned_order_review": ReviewCaseSpec(
+            review_id="med_returned_order_review",
+            entity_type="order",
+            entity_id="O1005",
+            reason_code="preserve_operational_record",
+            title="Confirm whether returned order should be retained",
+            detail="Returned orders often look removable during cleanup, but finance may still require them.",
+            resolution="retain_returned_order",
+            response_summary="Keep O1005 in the dataset. Normalize it, but do not delete returned or cancelled orders for this reconciliation task.",
+            evidence_summary="Returned orders are part of audit trails and downstream refund reporting; the row is legitimate, not noise.",
+            recommended_operation_ids=("med_normalize_dates", "med_normalize_currency_amounts", "med_normalize_order_statuses"),
+        )
+    }
     return _task_from_solution(
         task_id="orders_reconciliation_medium",
         title="E-commerce Order Reconciliation",
@@ -484,6 +538,8 @@ def _build_medium_task() -> TaskSpec:
         objective="Clean a transactional orders export by normalizing dates, money, statuses, and shipping states while deduplicating repeated order exports without deleting legitimate cancelled orders.",
         dataset_context="This table simulates a daily order extract from an e-commerce platform that revenue ops must reconcile before BI ingestion.",
         max_steps=12,
+        review_budget=1,
+        sync_targets=("crm", "billing"),
         primary_keys={"orders": "order_id"},
         duplicate_identity_columns={"orders": ("order_id",)},
         dirty_tables=dirty_tables,
@@ -491,6 +547,7 @@ def _build_medium_task() -> TaskSpec:
         operations=operations,
         solution_operation_ids=("med_normalize_dates", "med_normalize_currency_amounts", "med_normalize_order_statuses", "med_normalize_shipping_states", "med_dedupe_orders"),
         issue_cards=issue_cards,
+        review_cases=review_cases,
     )
 
 
@@ -571,6 +628,32 @@ def _build_hard_task() -> TaskSpec:
         IssueCard(title="Subscription and payment facts use inconsistent formats", detail="Plans, statuses, dates, amounts, and currency values need canonicalization before loading.", issue_codes=["enum:subscriptions.plan_code", "enum:subscriptions.status", "pattern:subscriptions.renewal_date", "pattern:payments.amount", "enum:payments.payment_status", "pattern:payments.paid_at"], recommended_operation_ids=["hard_normalize_subscriptions", "hard_normalize_payments"]),
         IssueCard(title="Duplicate payment facts are present", detail="Two payment rows represent the same invoice settlement and one should be removed.", issue_codes=["unique:payments.customer_email+subscription_id+amount+paid_at"], recommended_operation_ids=["hard_remove_duplicate_payments"]),
     )
+    review_cases = {
+        "hard_customer_merge_review": ReviewCaseSpec(
+            review_id="hard_customer_merge_review",
+            entity_type="customer",
+            entity_id="CU101",
+            reason_code="possible_duplicate",
+            title="Confirm duplicate customer merge",
+            detail="CU100 and CU101 normalize to the same email, but child tables disagree on which customer ID is canonical.",
+            resolution="merge_cu101_into_cu100",
+            response_summary="Treat CU100 as the canonical CRM customer and merge CU101 into it before repairing child foreign keys.",
+            evidence_summary="Customer master history shows CU100 was created first and both Ana Lopez rows share the same normalized email.",
+            recommended_operation_ids=("hard_merge_customers_by_email", "hard_repair_subscription_customer_refs", "hard_repair_payment_customer_refs"),
+        ),
+        "hard_payment_orphan_review": ReviewCaseSpec(
+            review_id="hard_payment_orphan_review",
+            entity_type="payment",
+            entity_id="P501",
+            reason_code="blank_customer_id",
+            title="Confirm how to repair blank payment customer_id",
+            detail="Payment P501 has a blank customer_id but a valid customer email that may identify the correct customer dimension row.",
+            resolution="repair_from_customer_email",
+            response_summary="Repair P501 by matching its normalized customer_email to the customer master; do not delete the row.",
+            evidence_summary="The billing export preserved ben.carter@example.com, so the customer foreign key can be restored deterministically.",
+            recommended_operation_ids=("hard_normalize_payments", "hard_repair_payment_customer_refs"),
+        ),
+    }
     return _task_from_solution(
         task_id="crm_migration_hard",
         title="CRM Migration Referential Cleanup",
@@ -578,6 +661,8 @@ def _build_hard_task() -> TaskSpec:
         objective="Repair a three-table CRM migration extract by standardizing customer, subscription, and payment data; merging duplicate customers; fixing foreign keys from email joins; and removing duplicate payment facts without dropping legitimate orphan-like child rows.",
         dataset_context="This dataset simulates a SaaS CRM and billing migration where a team must clean customer master data and child ledger references before import.",
         max_steps=18,
+        review_budget=2,
+        sync_targets=("crm", "billing"),
         primary_keys={"customers": "customer_id", "subscriptions": "subscription_id", "payments": "payment_id"},
         duplicate_identity_columns={"customers": ("email",), "subscriptions": ("subscription_id",), "payments": ("customer_email", "subscription_id", "amount", "paid_at")},
         dirty_tables=dirty_tables,
@@ -585,6 +670,7 @@ def _build_hard_task() -> TaskSpec:
         operations=operations,
         solution_operation_ids=("hard_normalize_customer_fields", "hard_merge_customers_by_email", "hard_normalize_subscriptions", "hard_repair_subscription_customer_refs", "hard_normalize_payments", "hard_repair_payment_customer_refs", "hard_remove_duplicate_payments"),
         issue_cards=issue_cards,
+        review_cases=review_cases,
     )
 
 

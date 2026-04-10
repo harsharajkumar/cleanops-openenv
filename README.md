@@ -16,8 +16,9 @@ tags:
 CleanOps is a real-world OpenEnv benchmark for evaluating AI agents on
 operational data-cleaning workflows. Instead of solving a game or toy puzzle,
 the agent has to inspect messy business tables, choose safe remediation actions,
-avoid destructive shortcuts, and submit a cleaned dataset scored by
-deterministic graders.
+escalate ambiguous records for human review, dry-run downstream syncs, avoid
+destructive shortcuts, and submit a cleaned dataset scored by deterministic
+graders.
 
 The benchmark models the kind of cleanup work that sales ops, RevOps, support
 ops, and data platform teams perform before loading data into CRMs, billing
@@ -35,6 +36,8 @@ systems, and analytics warehouses.
   payments data-cleaning tasks rather than synthetic game mechanics.
 - Full OpenEnv implementation: typed `Action`, `Observation`, and `State`
   models plus `reset()`, `step()`, and `state()` APIs.
+- Human-in-the-loop realism: review queues and downstream dry-run simulation
+  make the benchmark feel closer to RevOps / DataOps work than static CSV cleanup.
 - Deterministic evaluation: three graded tasks with reproducible `(0.0, 1.0)`
   scoring and interpretable grader components.
 - Dense reward shaping: partial progress signals reward useful cleanup while
@@ -51,8 +54,8 @@ systems, and analytics warehouses.
 - Curriculum structure: one easy, one medium, and one hard task with increasing
   schema complexity and cross-table dependencies.
 - Agent-friendly observations: the environment surfaces validation issues,
-  table previews, operation metadata, and reward breakdowns that make policy
-  learning and debugging tractable.
+  table previews, review targets, downstream health, and reward breakdowns
+  that make policy learning and debugging tractable.
 
 ## What The Agent Actually Does
 
@@ -60,8 +63,10 @@ On each episode, the agent:
 
 1. inspects noisy business tables and validation issues
 2. chooses from a typed catalog of cleaning operations
-3. applies targeted fixes while avoiding destructive shortcuts
-4. submits the cleaned dataset for deterministic scoring
+3. requests human review for ambiguous records when automation would be risky
+4. runs deterministic dry-run syncs against downstream CRM / billing systems
+5. applies targeted fixes while avoiding destructive shortcuts
+6. submits the cleaned dataset for deterministic scoring
 
 This creates a realistic benchmark loop for evaluating whether an agent can
 reason about messy structured data over multiple steps.
@@ -70,9 +75,9 @@ reason about messy structured data over multiple steps.
 
 | Task ID | Difficulty | Description |
 |---|---|---|
-| `customer_contacts_easy` | Easy | Clean a CRM contacts export by normalizing names/emails/phones/states, filling one missing state, and merging duplicate customers without dropping inactive accounts. |
-| `orders_reconciliation_medium` | Medium | Clean an e-commerce order extract by standardizing dates, currency, amounts, statuses, and shipping states while deduplicating repeated exports and preserving cancelled orders. |
-| `crm_migration_hard` | Hard | Repair a 3-table CRM migration extract by normalizing customer/subscription/payment fields, merging duplicate customer IDs, fixing foreign keys from email joins, and removing duplicate payment facts. |
+| `customer_contacts_easy` | Easy | Clean a CRM contacts export by normalizing names/emails/phones/states, handling one reviewable duplicate, and preparing the table for CRM import. |
+| `orders_reconciliation_medium` | Medium | Clean an e-commerce order extract by standardizing dates, currency, amounts, statuses, and shipping states while preserving returned orders and checking downstream billing readiness. |
+| `crm_migration_hard` | Hard | Repair a 3-table CRM migration extract with duplicate customers, broken foreign keys, ambiguous payment/customer linkages, review escalation, and CRM/billing dry-run checks. |
 
 ## API
 
@@ -124,9 +129,11 @@ with CleanOpsEnvClient(base_url="http://127.0.0.1:8000") as env:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `action_type` | `"inspect_table" \| "inspect_operation" \| "apply_operation" \| "submit"` | Selects the action family. |
+| `action_type` | `"inspect_table" \| "inspect_operation" \| "apply_operation" \| "request_review" \| "run_sync_dry_run" \| "submit"` | Selects the action family. |
 | `table_name` | `str \| null` | Table to inspect when `action_type="inspect_table"`. |
 | `operation_id` | `str \| null` | Cleaning operation to inspect/apply. |
+| `entity_type`, `entity_id`, `reason_code` | `str \| null` | Structured review request fields for ambiguous entities. |
+| `target_system` | `"crm" \| "billing" \| null` | Downstream system to test with a dry run. |
 | `reasoning` | `str` | Optional trace text used by baseline scripts. |
 | `metadata` | `dict` | OpenEnv metadata channel. |
 
@@ -139,6 +146,9 @@ with CleanOpsEnvClient(base_url="http://127.0.0.1:8000") as env:
 | `task_id`, `task_title`, `difficulty`, `objective`, `dataset_context` | Task metadata and objective. |
 | `quality_score`, `best_score`, `grader` | Deterministic score and score decomposition. |
 | `remaining_steps`, `done`, `reward`, `reward_breakdown` | Episode and reward state. |
+| `review_budget_remaining`, `available_review_targets`, `pending_reviews`, `resolved_reviews` | Human-review queue state for ambiguous records. |
+| `supported_sync_targets`, `downstream_health`, `risk_cards`, `last_dry_run` | Downstream business-system simulation state. |
+| `action_costs` | Estimated cost profile for the action families available in this benchmark. |
 | `table_summaries` | Compact per-table statistics and previews. |
 | `focus_table` | Full rows for the currently inspected table. |
 | `available_operations` | Typed catalog of cleaning actions and risk labels. |
@@ -155,24 +165,29 @@ Each step computes:
 
 ```text
 reward =
-  1.25 * score_delta
+  1.00 * score_delta
 + 0.35 * issue_count_delta
++ 0.55 * downstream_health_delta
 + inspection_bonus
++ review_bonus
 + step_penalty
 + invalid_action_penalty
 + no_op_penalty
++ review_cost_penalty
++ action_cost_penalty
 + submit_bonus
 ```
 
 This gives partial progress credit throughout the trajectory and penalizes
-repeat/no-op actions, invalid operations, and low-quality premature submission.
+repeat/no-op actions, invalid operations, unnecessary review spend, risky
+destructive behavior, and low-quality premature submission.
 
 ## System Design
 
 - `cleanops_env/tasks.py`: task definitions, gold tables, and operation catalog
 - `cleanops_env/graders.py`: deterministic scoring logic and validation checks
 - `cleanops_env/environment.py`: OpenEnv episode state, reward shaping, and
-  typed step/reset/state implementation
+  typed step/reset/state implementation with review queues and dry-run simulation
 - `server/app.py`: FastAPI/OpenEnv server plus the Hugging Face demo UI
 - `inference.py`: submission-ready baseline runner with structured logs
 
@@ -254,9 +269,9 @@ Expected scores measured locally:
 
 | Task ID | Score | Steps | Total Reward |
 |---|---:|---:|---:|
-| `customer_contacts_easy` | 0.9900 | 7 | 1.1234 |
-| `orders_reconciliation_medium` | 0.9900 | 6 | 1.0049 |
-| `crm_migration_hard` | 0.9900 | 8 | 1.0628 |
+| `customer_contacts_easy` | 0.9900 | 7 | 1.1280 |
+| `orders_reconciliation_medium` | 0.9900 | 6 | 1.0325 |
+| `crm_migration_hard` | 0.9900 | 8 | 1.2568 |
 | Mean | 0.9900 | - | - |
 
 ### OpenAI Baseline Agent

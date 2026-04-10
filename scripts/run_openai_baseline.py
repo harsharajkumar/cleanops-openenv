@@ -23,13 +23,19 @@ SYSTEM_PROMPT = """You are a careful data-cleaning operations agent.
 Your job is to improve the current task score by choosing one JSON action at a time.
 Use only this JSON schema:
 {
-  "action_type": "inspect_table" | "inspect_operation" | "apply_operation" | "submit",
+  "action_type": "inspect_table" | "inspect_operation" | "apply_operation" | "request_review" | "run_sync_dry_run" | "submit",
   "table_name": string | null,
   "operation_id": string | null,
+  "entity_type": string | null,
+  "entity_id": string | null,
+  "target_system": "crm" | "billing" | null,
+  "reason_code": string | null,
   "reasoning": string
 }
 Rules:
 - Prefer safe/review operations that directly address unresolved validation issues.
+- Use request_review when an ambiguous merge or foreign-key repair needs confirmation.
+- Use run_sync_dry_run before submit when downstream health is still weak.
 - Avoid destructive operations unless the objective explicitly asks for row deletion.
 - Call submit only when the data looks clean or there is 1 step left.
 - Return a single JSON object and no extra text."""
@@ -44,6 +50,15 @@ def compact_observation(observation: DataCleaningObservation) -> dict[str, Any]:
         "dataset_context": observation.dataset_context,
         "quality_score": observation.quality_score,
         "remaining_steps": observation.remaining_steps,
+        "review_budget_remaining": observation.review_budget_remaining,
+        "supported_sync_targets": observation.supported_sync_targets,
+        "downstream_health": observation.downstream_health.model_dump(),
+        "risk_cards": [risk_card.model_dump() for risk_card in observation.risk_cards],
+        "available_review_targets": [target.model_dump() for target in observation.available_review_targets],
+        "pending_reviews": [review.model_dump() for review in observation.pending_reviews],
+        "resolved_reviews": [review.model_dump() for review in observation.resolved_reviews],
+        "last_dry_run": observation.last_dry_run.model_dump() if observation.last_dry_run else None,
+        "action_costs": [entry.model_dump() for entry in observation.action_costs],
         "last_action_status": observation.last_action_status,
         "recent_history": observation.recent_history[-5:],
         "table_summaries": [summary.model_dump() for summary in observation.table_summaries],
@@ -148,4 +163,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
